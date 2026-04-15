@@ -11,20 +11,20 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: renord.exe
+
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact: renord-mac-x86
+
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: renord-mac-arm
+
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: renord-linux
 
     runs-on: ${{ matrix.os }}
 
@@ -37,12 +37,47 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename artifact
+      # 可选：减小体积（Linux/mac 生效）
+      - name: Strip binary
         shell: bash
         run: |
-          cp target/${{ matrix.target }}/release/renord* ${{ matrix.artifact }}
+          BIN="renord"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            BIN="renord.exe"
+          fi
+
+          strip target/${{ matrix.target }}/release/$BIN || true
+
+      - name: Package
+        shell: bash
+        run: |
+          BIN="renord"
+          EXT="tar.gz"
+
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            BIN="renord.exe"
+            EXT="zip"
+          fi
+
+          OUT="renord-${{ matrix.target }}.$EXT"
+
+          mkdir dist
+          cp target/${{ matrix.target }}/release/$BIN dist/
+
+          if [[ "$EXT" == "zip" ]]; then
+            cd dist
+            7z a ../$OUT $BIN
+          else
+            tar -czf $OUT -C dist $BIN
+          fi
+
+      - name: Checksum
+        shell: bash
+        run: |
+          sha256sum renord-${{ matrix.target }}.* > renord-${{ matrix.target }}.sha256
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.artifact }}
+          files: |
+            renord-${{ matrix.target }}.*
